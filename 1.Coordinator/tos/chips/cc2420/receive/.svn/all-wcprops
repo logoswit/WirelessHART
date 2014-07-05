@@ -1,0 +1,17 @@
+K 25
+svn:wc:ra_dav:version-url
+V 49
+/svn/!svn/ver/5697/trunk/tos/chips/cc2420/receive
+END
+CC2420ReceiveP.nc
+K 25
+svn:wc:ra_dav:version-url
+V 67
+/svn/!svn/ver/5697/trunk/tos/chips/cc2420/receive/CC2420ReceiveP.nc
+END
+CC2420ReceiveC.nc
+K 25
+svn:wc:ra_dav:version-url
+V 67
+/svn/!svn/ver/4659/trunk/tos/chips/cc2420/receive/CC2420ReceiveC.nc
+END

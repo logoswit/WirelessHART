@@ -1,0 +1,213 @@
+//#include "TSCH.h"
+#include "CrossLayer.h"
+
+generic module TSCHQueueP(am_id_t amId) {
+   provides interface Init as SoftwareInit;
+   /*provides interface Send as SendDATA;
+   provides interface SimpleSend as SendKA;
+   provides interface SimpleSend as SendRES;
+   provides interface SimpleSend as SendADV;*/
+   provides interface AMLSend; //weishe
+   provides interface DeQueue;  //
+   uses interface PacketAcknowledgements;
+   //provides interface DebugPrint;
+   //uses interface GlobalTime;
+   //uses interface GlobalSynch;
+   //uses interface PrintPacket;
+   //uses interface ActiveMessageAddress;
+   //uses interface AMSend; //weishe
+}
+implementation {
+   
+   //message_t* current_msg;
+   //error_t current_error;
+   //bool busy;
+  
+   QueueEntry_t queue[MAX_QUEUELENGTH]; //MAX_QUEUELENGTH == 13
+
+
+   error_t putInQueue(message_t* msg,am_addr_t dest,am_addr_t source, uint8_t len) {
+      uint8_t i=0;
+     
+      dbg("TSCHQueueP","%s:putInqueue!  dest: %u, source: %u@%s\n",__FUNCTION__,dest,source,sim_time_string());
+      for (i=0;i<MAX_QUEUELENGTH; i++) {
+		if (queue[i].used==TRUE && queue[i].source ==source) { //end-to-end source.
+		   //stop retransmit by replacing it.
+		    atomic{
+		             //queue[i].used=TRUE;
+			     queue[i].retries = MAX_RETRIES_NUM;
+		             //queue[i].slotoffset = sltoffset;//TXRETRIES-1;
+		             queue[i].pkt=msg;
+			     queue[i].type = amId;
+			     queue[i].addr = dest;
+			     queue[i].source = source;
+			     queue[i].len = len;
+                  }
+		   dbg("TSCHQueueP","%s:old msg is replaced!  dest: %u, source: %u@%s\n",__FUNCTION__,dest,source,sim_time_string());
+                  return SUCCESS;
+		}
+			
+      }
+
+      i = 0;
+      while (i<MAX_QUEUELENGTH) {
+         if (queue[i].used==FALSE) {
+            
+            atomic{
+                     queue[i].used=TRUE;
+		     queue[i].retries = MAX_RETRIES_NUM;
+                     //queue[i].slotoffset = sltoffset;//TXRETRIES-1;
+                     queue[i].pkt=msg;
+		     queue[i].type = amId;
+		     queue[i].addr = dest;
+		     queue[i].source = source;
+		     queue[i].len = len;
+                  }
+            dbg("TSCHQueueP","%s,put in queue successfully.  @ %s.\n", __FUNCTION__,sim_time_string());
+            dbg("TSCHQueueP","%s, msg:%p,type:%hhu, dest: %u, len:%hhu.  @ %s.\n", __FUNCTION__,queue[i].pkt,queue[i].type, queue[i].addr,queue[i].len, sim_time_string());
+            
+            return SUCCESS;
+         } else {
+            i++;
+         }
+      }
+      if(i == MAX_QUEUELENGTH) dbg("TSCHQueueP","%s:TSCHQueue is full!!!",__FUNCTION__);
+      return FAIL;
+   }
+
+   
+//------------------------------------------------------------------------------------------------
+
+  command error_t AMLSend.send(uint8_t sltoffset,am_addr_t dest,am_addr_t source, message_t* msg,uint8_t len) {
+		
+	//call AMPacket.setDestination(msg, dest); //set  destination in data link layer! i.e., cc2420_Header
+	//call AMPacket.setType(msg, amId);//set  type in data link layer! i.e., cc2420_Header
+
+
+	dbg("TSCHQueueP", "%s:AMLSend.send msg: %p @ %s.\n",__FUNCTION__, msg, sim_time_string()); //weishe
+	return putInQueue(msg, sltoffset,dest,source,len);
+  }
+
+  command error_t AMLSend.cancel(message_t* msg) {
+    return FALSE;//call Send.cancel(msg);
+  }
+  
+  command uint8_t AMLSend.maxPayloadLength() {
+    return FALSE;//call Send.maxPayloadLength();
+  }
+
+  command void* AMLSend.getPayload(message_t* m, uint8_t len) {
+    return FALSE;//call Send.getPayload(m, len);
+  }
+
+   //SoftwareInit
+   command error_t SoftwareInit.init() {
+      uint8_t i;
+      dbg("TSCHQueueP","%s:initialization!\n",__FUNCTION__);
+      for (i=0;i<13;i++){
+         queue[i].used=FALSE;
+      }
+      //busy=FALSE;
+      return SUCCESS;
+   }
+
+   
+   //DeQueue
+   async command DequeueEntry_t DeQueue.inQueue() {
+      uint8_t i;
+	  DequeueEntry_t de_t;
+          de_t.found = FALSE;
+	  de_t.type = 0;
+	  de_t.addr = 0;
+	  de_t.msg = NULL;
+	  de_t.len = 0;
+
+	  for (i=0;i<MAX_QUEUELENGTH;i++){
+		if (queue[i].used==TRUE){// &&
+		    //queue[i].slotoffset == sltoffset){
+			
+                        de_t.found = TRUE;
+			de_t.type = queue[i].type;
+			de_t.addr = queue[i].addr;
+			de_t.msg = queue[i].pkt;
+			de_t.len = queue[i].len;
+                   
+		    dbg("TSCHQueueP","%s:Find msg with this sltoffset!@%s\n",__FUNCTION__,sim_time_string());	
+		    return de_t;
+		}
+	  }
+          //dbg("TSCHQueueP","%s:cannot find msg with this sltoffset!,slotoffset:%hhu@%s\n",__FUNCTION__,sltoffset,sim_time_string());
+          de_t.found = FALSE;
+ 	  return de_t;
+   }
+	
+	/*event void inQueueDone(message_t* msp, error_t error){
+	
+	}*/
+     
+   command void DeQueue.done(message_t* msg, error_t error) {
+	    uint8_t i;
+            dbg("TSCHQueueP","%s:DeQueue.done!@%s\n",__FUNCTION__,sim_time_string());
+	    if (error != SUCCESS) {
+	        dbg("TSCHQueueP", "%s: dequeue failed. @%s\n", __FUNCTION__, sim_time_string());
+	      	return;
+	   }
+	      /*if (busy==TRUE){
+		 printf("TSCHQueue.nc: ERROR busy==TRUE\n");printfflush();
+		 return;
+	      }*/
+    
+	 
+	  //signal send to data link layer(cc2420TdmaSlotP.nc), not just to cross layer queue!!!!! weishe
+	  signal AMLSend.sendDone(msg, error);  //signal to Forwarder that this msg has been transmitted with ACK or NOACK received in data link layer. i.e., one transaction is finished!
+	 
+	  //whatever success or not, clear "used" mark! if failness, msg will be retransmitted in forwarder.
+         for (i=0;i<MAX_QUEUELENGTH; i++) {
+		if (queue[i].used==TRUE && queue[i].pkt==msg) {
+		   //atomic{
+			//  queue[i].used=FALSE;
+		   //}
+		   //informRequester();
+		   break;
+		}
+			
+	  }
+	  
+	  if (i==MAX_QUEUELENGTH) {
+		//printf("TSCHQueue.nc: ERROR DeQueue.done for a packet I did not send\n");printfflush();
+		dbg("TSCHQueueP","%s: ERROR DeQueue.done for a packet I did not send. @%s\n",__FUNCTION__,sim_time_string());
+		return;
+	  }   
+	  else{
+	  	
+    	       if (!call PacketAcknowledgements.wasAcked(msg)) {
+		      	// No ack: if countdown is not 0, retransmit, else drop the packet. 
+		      	if (--queue[i].retries) { 
+				dbg("TSCHQueueP", "%s: not acked, retransmit @%s\n", __FUNCTION__,sim_time_string());
+			} else {
+				// Hit max retransmit threshold: drop the packet. 
+				
+				dbg("TSCHQueueP", "%s: Hit max retransmit threshold: drop the packet. @%s\n", __FUNCTION__,sim_time_string());
+				atomic{
+			  	   queue[i].used=FALSE;
+		   		}
+	
+		       }
+	    	}
+	    	else {
+	      		// Packet was acknowledged. 
+	      		dbg("TSCHQueueP", "%s: Packet was acknowledged! @%s\n", __FUNCTION__,sim_time_string());
+			atomic{
+			  queue[i].used=FALSE;
+		   	}
+	    	}
+	  }
+	  
+     
+      
+   }
+
+   
+
+  
+}

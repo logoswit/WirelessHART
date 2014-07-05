@@ -1,0 +1,4 @@
+differences from Devices:
+
+1. lib/priorityMAC/PriorityMACP.nc
+2. lib/transmit/CC2420TransmitP.nc
